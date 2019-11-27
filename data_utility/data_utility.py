@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 import scipy
-
+from scipy import interpolate
 import pdb
 #-------------------------------------------------------------------------------------------------------#
 #-------------------------------------------------------------------------------------------------------#
@@ -156,6 +156,8 @@ class CREAM_Day():
 
         data.Timestamp = pd.to_datetime(data.Timestamp, box=True)
 
+
+
         ts_array = []
         for i, row in data.iterrows():
             ts = row.Timestamp.tz_convert(timezone)
@@ -206,8 +208,7 @@ class CREAM_Day():
 
         data["Date"] = data.Timestamp.apply(lambda x: x.date())
 
-        if filter_day is True: #only return the event of the corresponding CREAM day
-
+        if filter_day is True:  # only return the event of the corresponding CREAM day
             data = data[data["Date"] == self.day_date.date()]
 
         return data
@@ -241,10 +242,12 @@ class CREAM_Day():
         data["Timestamp"] = ts_array
 
         data.sort_values("Timestamp", inplace=True)
-        data = data[data["Date"] == self.day_date.date()]
+
+        data["Date"] = data.Timestamp.apply(lambda x: x.date())
 
         if filter_day is True:  # only return the event of the corresponding CREAM day
-            data["Date"] = data.Timestamp.apply(lambda x: x.date())
+            data = data[data["Date"] == self.day_date.date()]
+
 
 
         return data
@@ -277,8 +280,11 @@ class CREAM_Day():
 
         # Check if the file is already in the file cache
         if self.use_buffer is True and file_path in self.file_cache:
+
             voltage = self.file_cache[file_path]["voltage"]
             current = self.file_cache[file_path]["current"]
+            return voltage, current
+
         else:
 
 
@@ -315,7 +321,7 @@ class CREAM_Day():
                 # Before returning, check if we store the file in the cache and if we need to delete one instead from the cache
                 if self.use_buffer is True:
                     if len(self.file_cache) < self.buffer_size_files:
-                        self.file_cache[file_path] = {"voltage" : voltage, "current": current}
+                        self.file_cache[file_path] = {"voltage" : np.array([voltage]), "current": np.array([current])}
                     else:
                         sorted_filenames = list(self.file_cache.keys())
                         sorted_filenames.sort()
@@ -326,6 +332,7 @@ class CREAM_Day():
 
             else:  # if empty
                 return None, None
+
 
     def load_time_frame(self, start_datetime: datetime, duration : float, return_noise: bool = False):
 
@@ -342,16 +349,22 @@ class CREAM_Day():
         if end_datetime > self.maximum_request_timestamp:
             raise ValueError("The requested Time window is bigger then the maximum_request_timestamp of the day object")
 
-        result = {}
 
 
         # determine all the files that are relevant for the requested time window
-        pdb.set_trace()
 
-        relevant_files_df = self.files_metadata_df[self.files_metadata_df.Start_timestamp.between(start_datetime, end_datetime)]
+        # The index of the first relevant_file: i.e. the last file that is smaller then the start_datetime
+        first_file_idx = self.files_metadata_df[self.files_metadata_df.Start_timestamp <= start_datetime].index[-1]
+
+        # The last relevant_file: i.e. the first file that has and End_timestamp that is bigger then the one we need
+        last_file_idx = self.files_metadata_df[self.files_metadata_df.End_timestamp >= end_datetime].index[0]
+
+
+        # Get all the files in between the first and the last file needed
+        relevant_files_df = self.files_metadata_df.loc[first_file_idx:last_file_idx]
 
         if len(relevant_files_df) == 0:
-            raise ValueError("The timeframe requested does not lie within the current day")
+            raise ValueError("The timeframe requested does not lie within the current day!")
 
         relevant_voltage = []
         relevant_current = []
@@ -370,8 +383,8 @@ class CREAM_Day():
         # Compute the start_index
 
         # 1.1 Compute the offset in the first file
-        start_index = int(self.get_index_from_timestamps(relevant_files_df.iloc[0].Start_timestamp, start_datetime))
-        end_index = int(self.get_index_from_timestamps(relevant_files_df.iloc[-1].Start_timestamp, end_datetime))
+        start_index = int(self.get_index_from_timestamp(relevant_files_df.iloc[0].Start_timestamp, start_datetime))
+        end_index = int(self.get_index_from_timestamp(relevant_files_df.iloc[-1].Start_timestamp, end_datetime))
 
 
         # Get the voltage and current window
@@ -434,7 +447,7 @@ class CREAM_Day():
 
         return datetime_object
 
-    def get_index_from_timestamps(self, start_timestamp: datetime, event_timestamp: datetime):
+    def get_index_from_timestamp(self, start_timestamp: datetime, event_timestamp: datetime):
         """
         Returns the index of the event, represented by the event_timestamp, relativ to the start_timestamp (i.e. start timestamp of the file of interest e.g.)
         The event_timestamp is expected to be a pandas Timestam
@@ -443,7 +456,16 @@ class CREAM_Day():
         sec_since_start = event_timestamp - start_timestamp
         event_index = sec_since_start.total_seconds() * (self.sampling_rate)  # and # multiply by samples per second
 
-        return event_index
+        return int(event_index)
+
+
+    def get_timestamp_from_index(self, start_timestamp: datetime, event_index: int):
+        seconds_per_sample = 1 / self.sampling_rate # 1 second / samples = seconds per sample
+        time_since_start = event_index * seconds_per_sample
+        event_ts = start_timestamp + timedelta(seconds=time_since_start)
+
+        return event_ts
+
 
     def _adjust_amplitude_offset(self, file: h5py.File):
         """
@@ -479,10 +501,8 @@ class CREAM_Day():
 
         # build a linear interpolation, that interpolates for each period witch offset it should have
         # for each of the datapoints, interpolate the offset
-        voltage_offset = scipy.interpolate.interp1d(x_per_period, mean_values_per_period)(x_original)
+        voltage_offset = interpolate.interp1d(x_per_period, mean_values_per_period)(x_original)
         current_offset = voltage_offset * 1 / np.sqrt(2)  # roughly * 0.7
 
         return voltage_offset, current_offset
-
-
 
