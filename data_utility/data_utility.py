@@ -9,10 +9,9 @@ from datetime import timedelta
 
 import numpy as np
 import pandas as pd
-
+import pdb
 import scipy
 from scipy import interpolate
-import pdb
 #-------------------------------------------------------------------------------------------------------#
 #-------------------------------------------------------------------------------------------------------#
 # TODO Die Funktionen auch einfacher machen
@@ -283,6 +282,7 @@ class CREAM_Day():
 
             voltage = self.file_cache[file_path]["voltage"]
             current = self.file_cache[file_path]["current"]
+
             return voltage, current
 
         else:
@@ -317,18 +317,22 @@ class CREAM_Day():
 
                 if return_noise is True:
                     current = np.array([current, current_noise])
+                    voltage = np.array(voltage)
+                else:
+                    current = np.array(current)
+                    voltage = np.array(voltage)
 
                 # Before returning, check if we store the file in the cache and if we need to delete one instead from the cache
                 if self.use_buffer is True:
                     if len(self.file_cache) < self.buffer_size_files:
-                        self.file_cache[file_path] = {"voltage" : np.array([voltage]), "current": np.array([current])}
+                        self.file_cache[file_path] = {"voltage" : np.array(voltage), "current": np.array(current)}
+
                     else:
                         sorted_filenames = list(self.file_cache.keys())
                         sorted_filenames.sort()
                         del self.file_cache[sorted_filenames[0]] #delete the oldest file
-                        # TODO check if worked
 
-                return np.array([voltage]), np.array([current])
+                return np.array(voltage), np.array(current)
 
             else:  # if empty
                 return None, None
@@ -345,10 +349,8 @@ class CREAM_Day():
         # TODO Duration in seconds only
         end_datetime = start_datetime + timedelta(seconds=duration)
 
-
         if end_datetime > self.maximum_request_timestamp:
             raise ValueError("The requested Time window is bigger then the maximum_request_timestamp of the day object")
-
 
 
         # determine all the files that are relevant for the requested time window
@@ -368,6 +370,7 @@ class CREAM_Day():
 
         relevant_voltage = []
         relevant_current = []
+        relevant_current_noise = []
 
         for i, row in relevant_files_df.iterrows():
 
@@ -376,28 +379,34 @@ class CREAM_Day():
             relevant_voltage.append(voltage)
             relevant_current.append(current)
 
+            if return_noise is True:
+                relevant_current.append(current[0])
+                relevant_current_noise.append(current[1])
+
         # now stack together the relevant signals
-        relevant_voltage = np.concatenate(relevant_voltage, axis=1)
-        relevant_current = np.concatenate(relevant_current, axis=1)
+        relevant_voltage = np.concatenate(relevant_voltage, axis=-1)
+        relevant_current = np.concatenate(relevant_current, axis=-1)
+
+        if return_noise is True and len(relevant_current_noise) > 0:
+            relevant_current_noise = np.concatenate(relevant_current_noise, axis=-1)
 
         # Compute the start_index
 
         # 1.1 Compute the offset in the first file
         start_index = int(self.get_index_from_timestamp(relevant_files_df.iloc[0].Start_timestamp, start_datetime))
-        end_index = int(self.get_index_from_timestamp(relevant_files_df.iloc[-1].Start_timestamp, end_datetime))
-
+        end_index = int(self.get_index_from_timestamp(relevant_files_df.iloc[0].Start_timestamp, end_datetime))
 
         # Get the voltage and current window
-        voltage = relevant_voltage[0][start_index:end_index] #there is only one voltage channel
+        voltage = relevant_voltage[start_index:end_index] #there is only one voltage channel
 
-        current = []
-        # there are multiple current channels
-        for curr in relevant_current: #for each dimension
-            current.append(curr[start_index:end_index])
+
+        if return_noise is True and len(relevant_current_noise) > 0:
+            current = [relevant_current[start_index:end_index], relevant_current_noise[start_index:end_index]]
+        else:
+            current = relevant_current[start_index:end_index]
 
         voltage = np.array(voltage)
         current = np.array(current)
-
 
         return voltage, current
 
@@ -452,7 +461,6 @@ class CREAM_Day():
         Returns the index of the event, represented by the event_timestamp, relativ to the start_timestamp (i.e. start timestamp of the file of interest e.g.)
         The event_timestamp is expected to be a pandas Timestam
         """
-
         sec_since_start = event_timestamp - start_timestamp
         event_index = sec_since_start.total_seconds() * (self.sampling_rate)  # and # multiply by samples per second
 
