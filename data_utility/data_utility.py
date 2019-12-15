@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 import glob
-
 import h5py
 
 from datetime import datetime
@@ -120,8 +119,7 @@ class CREAM_Day():
 
         # Compute the minimum and maximum time for this day, and the respective differences to the day before
         self.minimum_request_timestamp = self.files_metadata_df.iloc[0].Start_timestamp
-        self.maximum_request_timestamp = self.files_metadata_df.iloc[-1].Start_timestamp + timedelta(
-            seconds=(self.file_duration_sec / self.sampling_rate))
+        self.maximum_request_timestamp = self.files_metadata_df.iloc[-1].Start_timestamp + timedelta(seconds=self.file_duration_sec)
 
         # Find the day of the dataset
         folder_path = os.path.basename(os.path.normpath(self.dataset_location))  # name of the folder
@@ -131,50 +129,9 @@ class CREAM_Day():
 
         # initiate cache if set to true
 
-    def load_maintenance_events(self, file_path: str = None, filter_day : bool = False) -> pd.DataFrame:
+    def load_machine_events(self, file_path: str = None, filter_day : bool = False, raw_file=True) -> pd.DataFrame:
         """
         Load the maintenance event file. The events are sorted by the time they occur.
-
-        Parameters
-        ----------
-        file_path
-
-        Returns
-        -------
-
-        """
-
-        if file_path is None:
-            raise ValueError("Specify a file_path, containing the events file")
-
-        data = pd.read_csv(file_path)
-
-        # The timezone of the timestamps need to be from the same type
-        # We use the first file of the day_object to get
-        timezone = self.get_datetime_from_filepath(self.files[0]).tzinfo
-
-        data.Timestamp = pd.to_datetime(data.Timestamp, box=True)
-
-
-
-        ts_array = []
-        for i, row in data.iterrows():
-            ts = row.Timestamp.tz_convert(timezone)
-            ts_array.append(ts)
-        data["Timestamp"] = ts_array
-
-        data.sort_values("Timestamp", inplace=True)
-
-        data["Date"] = data.Timestamp.apply(lambda x: x.date())
-
-        if filter_day is True:  # only return the event of the corresponding CREAM day
-            data = data[data["Date"] == self.day_date.date()]
-
-        return data
-
-    def load_product_events(self, file_path: str = None, filter_day : bool = False) -> pd.DataFrame:
-        """
-        Load the product event file. The events are sorted by the time they occur.
 
         Parameters
         ----------
@@ -194,25 +151,36 @@ class CREAM_Day():
         # We use the first file of the day_object to get
         timezone = self.get_datetime_from_filepath(self.files[0]).tzinfo
 
-        data.Timestamp = pd.to_datetime(data.Timestamp, box=True)
+        if raw_file is True:  # In case the raw product file is used
 
-        ts_array = []
+            data.Timestamp = pd.to_datetime(data.Timestamp)
 
-        for i, row in data.iterrows():
-            ts = row.Timestamp.tz_convert(timezone)
-            ts_array.append(ts)
-        data["Timestamp"] = ts_array
+            data = self._convert_timezone(data, "Timestamp", target_timezone=timezone)
 
-        data.sort_values("Timestamp", inplace=True)
+            data.sort_values("Timestamp", inplace=True)
 
-        data["Date"] = data.Timestamp.apply(lambda x: x.date())
+            data["Date"] = data.Timestamp.apply(lambda x: x.date())
+
+        else:  # the manually adjusted and pre-processed product file is used
+
+            for column in data.columns:
+
+                # Convert all timestamp columns
+                if "Timestamp" in column:
+                    data[column] = pd.to_datetime(data[column])
+                    data = self._convert_timezone(data, column, target_timezone=timezone)
+
+            data["Date"] = data.End_Timestamp.apply(lambda x: x.date())
+
+            data.sort_values("Start_Timestamp", inplace=True)
+
 
         if filter_day is True:  # only return the event of the corresponding CREAM day
             data = data[data["Date"] == self.day_date.date()]
 
         return data
 
-    def load_event_labels(self, file_path: str = None, filter_day : bool = False) -> pd.DataFrame:
+    def load_appliance_events(self, file_path: str = None, filter_day : bool = False) -> pd.DataFrame:
         """
         Load the labeled electrical events file. The events are sorted by the time they occur.
 
@@ -232,13 +200,9 @@ class CREAM_Day():
         # We use the first file of the day_object to get
         timezone = self.get_datetime_from_filepath(self.files[0]).tzinfo
 
-        data.Timestamp = pd.to_datetime(data.Timestamp, box=True)
+        data.Timestamp = pd.to_datetime(data.Timestamp)
 
-        ts_array = []
-        for i, row in data.iterrows():
-            ts = row.Timestamp.tz_convert(timezone)
-            ts_array.append(ts)
-        data["Timestamp"] = ts_array
+        data = self._convert_timezone(data, "Timestamp", target_timezone=timezone)
 
         data.sort_values("Timestamp", inplace=True)
 
@@ -246,8 +210,6 @@ class CREAM_Day():
 
         if filter_day is True:  # only return the event of the corresponding CREAM day
             data = data[data["Date"] == self.day_date.date()]
-
-
 
         return data
 
@@ -336,7 +298,6 @@ class CREAM_Day():
 
             else:  # if empty
                 return None, None
-
 
     def load_time_frame(self, start_datetime: datetime, duration : float, return_noise: bool = False):
 
@@ -466,14 +427,12 @@ class CREAM_Day():
 
         return int(event_index)
 
-
     def get_timestamp_from_index(self, start_timestamp: datetime, event_index: int):
         seconds_per_sample = 1 / self.sampling_rate # 1 second / samples = seconds per sample
         time_since_start = event_index * seconds_per_sample
         event_ts = start_timestamp + timedelta(seconds=time_since_start)
 
         return event_ts
-
 
     def _adjust_amplitude_offset(self, file: h5py.File):
         """
@@ -513,4 +472,28 @@ class CREAM_Day():
         current_offset = voltage_offset * 1 / np.sqrt(2)  # roughly * 0.7
 
         return voltage_offset, current_offset
+
+    def _convert_timezone(self, dataframe: pd.DataFrame, column_name : str, target_timezone:str):
+        """
+        Converts timezone in column_name column in dataframe to target_timezone
+        Parameters
+        ----------
+        dataframe
+        column_name
+        timezone
+
+        Returns
+        -------
+
+        """
+
+        ts_array = []
+
+        for i, row in dataframe.iterrows():
+            ts = row[column_name].tz_convert(target_timezone)
+            ts_array.append(ts)
+
+        dataframe[column_name] = ts_array
+
+        return dataframe
 
