@@ -2,12 +2,14 @@ import os
 from pathlib import Path
 import glob
 import h5py
+from typing import Union
 
 from datetime import datetime
 from datetime import timedelta
 
 import numpy as np
 import pandas as pd
+
 import pdb
 import scipy
 from scipy import interpolate
@@ -106,13 +108,7 @@ class CREAM_Day():
                                                "End_timestamp": file_end_times})
 
 
-        if self.sampling_rate == 6400:
-            self.dataset_name = "CREAM_12000Hz"
-        elif self.sampling_rate == 12000:
-            self.dataset_name = "CREAM6400Hz"
-        else:
-            raise ValueError(
-                "Check the metadata, it does not match the original CREAM dataset (e.g. the frequency attribute)")
+        self.dataset_name = "CREAM"
 
         # Compute the average_sampling_rate on this particular day
         self._compute_average_sampling_rate(start_timestamp)
@@ -127,7 +123,9 @@ class CREAM_Day():
         self.day_date = datetime(year=int(date[0]), month=int(date[1]), day=int(date[2]))
 
 
-        # initiate cache if set to true
+
+        # Initialize weekday information
+        self.weekday_information_df = None
 
     def load_machine_events(self, file_path: str = None, filter_day : bool = False, raw_file=True) -> pd.DataFrame:
         """
@@ -180,8 +178,10 @@ class CREAM_Day():
 
         return data
 
-    def load_appliance_events(self, file_path: str = None, filter_day : bool = False) -> pd.DataFrame:
+    # todo raw event file implementieren
+    def load_component_events(self, file_path: str = None, filter_day : bool = False, raw_file : bool =True) -> pd.DataFrame:
         """
+
         Load the labeled electrical events file. The events are sorted by the time they occur.
 
         Parameters
@@ -191,7 +191,15 @@ class CREAM_Day():
         Returns
         -------
 
+        data (pd.DataFrame):
+            In case the raw file is returned(raw_file=False): pd.DataFrame with columns
+            'Filename', 'Timestamp', 'Amplitude', 'Event_Type'. Sorted descending by 'Timestamp.
+            In case the processed file is loaded: pd.DataFrame with columns:
+            'Start_Timestamp', 'Automatic_Timestamp', 'Event_Type', 'End_Timestamp', 'Event_Duration_Seconds', 'Date',
+            Sorted descending by 'Start_Timestamp'.
+
         """
+
         if file_path is None:
             raise ValueError("Specify a file_path, containing the events file.")
 
@@ -200,13 +208,27 @@ class CREAM_Day():
         # We use the first file of the day_object to get
         timezone = self.get_datetime_from_filepath(self.files[0]).tzinfo
 
-        data.Timestamp = pd.to_datetime(data.Timestamp)
+        if raw_file is True: # in case the raw file is loaded
+            data.Timestamp = pd.to_datetime(data.Timestamp)
 
-        data = self._convert_timezone(data, "Timestamp", target_timezone=timezone)
+            data = self._convert_timezone(data, "Timestamp", target_timezone=timezone)
 
-        data.sort_values("Timestamp", inplace=True)
+            data.sort_values("Timestamp", inplace=True)
 
-        data["Date"] = data.Timestamp.apply(lambda x: x.date())
+            data["Date"] = data.Timestamp.apply(lambda x: x.date())
+
+        else: # in case the processed file is loaded
+
+            for column in data.columns:
+
+                # Convert all timestamp columns
+                if "Timestamp" in column:
+                    data[column] = pd.to_datetime(data[column])
+                    data = self._convert_timezone(data, column, target_timezone=timezone)
+
+            data["Date"] = data.Timestamp.apply(lambda x: x.date())
+
+            data.sort_values("Timestamp", inplace=True)
 
         if filter_day is True:  # only return the event of the corresponding CREAM day
             data = data[data["Date"] == self.day_date.date()]
@@ -496,4 +518,42 @@ class CREAM_Day():
         dataframe[column_name] = ts_array
 
         return dataframe
+
+    # TODO specify return type
+
+    def get_weekday_information(self,  date : Union[list, np.ndarray], file_path : str = None):
+
+        """
+        For a certain date, get the day related information from the file provided with the dataset.
+
+        Parameters
+        ----------
+        date (list, np.ndarray): list of string dates to be checked, format: year-month-day
+        file_path (string): default=None if path is not provided, the default location of the file is assumed
+
+        Returns
+        -------
+        day_information_df (pd.DataFrame): DataFrame with columns:
+            Date (string, date format year-month-day), WorkingDay (boolean), Weekday (string)
+
+
+        """
+
+        if file_path is None:
+            file_path = os.path.abspath(self.dataset_location + "/../" + "day_information.csv")
+
+        day_information_df = None
+        if self.weekday_information_df is None:  # if not initialized yet
+            self.weekday_information_df = pd.read_csv(file_path)
+
+        if type(date) in [list, np.ndarray]:
+            if not all(isinstance(n, str) for n in date):  # if not all dates are strings, convert them
+                date = [str(n) for n in date]
+            day_information_df = self.weekday_information_df[self.weekday_information_df.Date.isin(date)]
+            day_information_df.Date = day_information_df.Date.apply(lambda x: pd.to_datetime(x, format='%Y-%m-%d')).dt.date
+
+
+
+        return day_information_df
+
 
