@@ -9,6 +9,7 @@ import glob
 import h5py
 from datetime import datetime
 from datetime import timedelta
+from datetime import timezone
 import numpy as np
 import pandas as pd
 from scipy import interpolate
@@ -16,13 +17,13 @@ from scipy import interpolate
 # CREAM Data Utility class. Please refer to the docstring for details!
 #-------------------------------------------------------------------------------------------------------#
 
-class CREAM_Day():‚
+class CREAM_Day():
     """
     A class representing one particular day of the CREAM dataset.
     
     The CREAM dataset has the following file structure:
     |-CREAM
-    |------- 2018-08-23
+    |------- 2018-08-23 
     |        |--------- *.hdf5
     |        |--------- *.hdf5
     |        |--------- *.hdf5
@@ -117,11 +118,10 @@ class CREAM_Day():‚
         self.files = glob.glob(os.path.join(self.dataset_location, "*.hdf5"))
         self.files.sort()
 
-
         # We use the first file and the timestamps in the filenames in the dataset (of this day) to get the metadata information
         # Get the timezone information from the filename timestamp
-        timezone = self.get_datetime_from_filepath(self.files[0])
-        timezone = timezone.tzinfo
+        #timezone = self.get_datetime_from_filepath(self.files[0])
+        #timezone = timezone.tzinfo
 
         # Load Metadata from the first file of the respective device --> same for all of the device --> STATIC METADATA
         with h5py.File(self.files[0], 'r', driver='core') as f:
@@ -129,7 +129,7 @@ class CREAM_Day():‚
             self.sampling_rate = int(f.attrs['frequency'])  # get the sampling rate
             self.samples_per_file = len(f["voltage"])  # get the length of the signal
 
-            # get the start timestamp
+            # get the start timestamp‚
             start_timestamp = datetime(
                 year=int(f.attrs['year']),
                 month=int(f.attrs['month']),
@@ -138,11 +138,12 @@ class CREAM_Day():‚
                 minute=int(f.attrs['minutes']),
                 second=int(f.attrs['seconds']),
                 microsecond=int(f.attrs['microseconds']),
-                tzinfo=timezone)
+                tzinfo=timezone(timedelta(hours=int(f.attrs['timezone'][1:4]), minutes=int(f.attrs['timezone'][4:]))))
 
-            self.file_duration_sec = self.samples_per_file / self.sampling_rate
+            # todo idee
+            self.file_duration_sec = 60 * 60 # each file, one hour --> seconds per file
+            #self.file_duration_sec = self.samples_per_file / self.sampling_rate
             self.number_of_files = len(self.files)
-
 
         # Some file metadata for every file
         file_start_times = [self.get_datetime_from_filepath(f) for f in self.files]
@@ -155,8 +156,6 @@ class CREAM_Day():‚
 
         self.dataset_name = "CREAM"
 
-        # Compute the average_sampling_rate on this particular day
-        self._compute_average_sampling_rate(start_timestamp)
 
         # Compute the minimum and maximum time for this day, and the respective differences to the day before
         self.minimum_request_timestamp = self.files_metadata_df.iloc[0].Start_timestamp
@@ -166,8 +165,6 @@ class CREAM_Day():‚
         folder_path = os.path.basename(os.path.normpath(self.dataset_location))  # name of the folder
         date = folder_path.split("-")
         self.day_date = datetime(year=int(date[0]), month=int(date[1]), day=int(date[2]))
-
-
 
         # Initialize weekday information
         self.weekday_information_df = None
@@ -239,7 +236,6 @@ class CREAM_Day():‚
             data = data[data["Date"] == self.day_date.date()]
 
         return data
-
 
     def load_component_events(self, file_path: str = None, filter_day : bool = False) -> pd.DataFrame:
         """
@@ -370,7 +366,55 @@ class CREAM_Day():‚
             else:  # if empty
                 return None, None
 
+    def load_file_metadata(self, file_path: str, attribute_list: list = []) -> dict:
+        """
+        Load the file metadata for a specifc files.
+        The metadata is stored in the HDF5 attributes, details are documented in the data descriptor.
+        The following attributes are available:
+        ["name", "first_trigger_id", "last_trigger_id", "sequence", "frequency", "year", "month", "day",
+        "hours", "minutes", "seconds", "microseconds", "timezone", "calibration_factor", "removed_offset"]
+
+        Parameters
+        ----------
+        file_path (str): path to the file to be loaded. Needs to be the full-path, as provide by the "files"
+                        attribute of the CREAM_Day object.
+        attribute_list (list): default=[], specify specifc attribute names to be loaded. If no
+                                dedicated attributes are specified, all attributes are returned
+
+        Returns
+        -------
+        attributes_dict (dict): dictionary with all HDF5 attributes of a specifc file.
+
+        """
+
+        if file_path is None:
+            raise ValueError("Specify a file path!")
+
+        all_attributes = ["name", "first_trigger_id", "last_trigger_id", "sequence", "frequency", "year", "month", "day",
+        "hours", "minutes", "seconds", "microseconds", "timezone", "calibration_factor", "removed_offset"]
+
+        if len(attribute_list) == 0: #use all attributes if non is specified
+            attribute_list = all_attributes
+        else:
+            # Check if user specified attributes exist in the metadata
+            for attr in attribute_list:
+                if attr not in all_attributes:
+                    raise ValueError("The atttribute %s is not available!")
+
+        attributes_dict = {}
+        with h5py.File(file_path, 'r', driver='core') as f:
+
+            for attr in attribute_list:
+
+                if attr in ["calibration_factor", "removed_offset"]: #not in the attribute root of the hdf5 file
+                    attributes_dict[attr] = f["voltage"].attrs[attr]
+                else: #attributes in the root of the hdf5 file
+                    attributes_dict[attr] = f.attrs['frequency']
+
+        return attributes_dict
+
     def load_time_frame(self, start_datetime: datetime, duration : float, return_noise: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+
         """
         Loads an arbitrary time-frame of the CREAM dataset. Can be also used for streaming the data fast: in case
         the caching parameter is enabled in the CREAM_Day object. Otherwise, the files will be reloaded every time
@@ -391,11 +435,11 @@ class CREAM_Day():‚
                                 the noise signal.
 
         """
+
         # Perform initial checks
         if start_datetime < self.minimum_request_timestamp:
             raise ValueError(
                 "The requested Time window is smaller then the minimum_request_timestamp of the day object")
-
 
         end_datetime = start_datetime + timedelta(seconds=duration)
 
@@ -449,7 +493,6 @@ class CREAM_Day():‚
         # Get the voltage and current window
         voltage = relevant_voltage[start_index:end_index] #there is only one voltage channel
 
-
         if return_noise is True and len(relevant_current_noise) > 0:
             current = [relevant_current[start_index:end_index], relevant_current_noise[start_index:end_index]]
         else:
@@ -460,43 +503,38 @@ class CREAM_Day():‚
 
         return voltage, current
 
-    def _compute_average_sampling_rate(self, start_timestamp: datetime) -> None:
+    def compute_average_sampling_rate(self) -> float:
         """
         Estimate the average sampling rate per day.
+        Load the metadata of every file of the current day.
+        Per file (one hour files), we compute the actual sampling rate.
+        We then average this number over all files of this day, resulting in the average sampling rate.
 
         Calculate the difference between the first and last sample of a day based on
         the timestamps of the files.
-        Sets the average_sampling_rate attribute of the CREAM_Day object
+        Sets the average_sampling_rate attribute of the CREAM_Day object.
+        One can compare the average_sampling_rate to the nominal one of 6400.
+
         Parameters
         ----------
-        start_timestamp (datetime.datetime): start timestamp of the day
 
         Returns
         -------
-        None
-
+        average_sampling_rate (float): average sampling rate per day (computed over the files)
         """
 
-        duration = self.number_of_files * self.file_duration_sec
+        FILE_LENGTH_SEC = 60 * 60 #one hour files
+        actual_sampling_rates = []
+        for file in self.files:
+            voltage, current = self.load_file(file_path=file)
+            samples_per_file = len(voltage)
+            actual_sampling_rate = samples_per_file / FILE_LENGTH_SEC
+            actual_sampling_rates.append(actual_sampling_rate)
+        self.average_sampling_rate = np.mean(actual_sampling_rates)
 
-        # get the timestamp of last file
-        end_file = self.files[-1]
-        timezone = self.get_datetime_from_filepath(end_file)
-        timezone = timezone.tzinfo
+        return self.average_sampling_rate
 
-        # get the end file
-        with h5py.File(end_file, 'r', driver='core') as f:
-            end_timestamp = datetime(
-                year=int(f.attrs['year']),
-                month=int(f.attrs['month']),
-                day=int(f.attrs['day']),
-                hour=int(f.attrs['hours']),
-                minute=int(f.attrs['minutes']),
-                second=int(f.attrs['seconds']),
-                microsecond=int(f.attrs['microseconds']),
-                tzinfo=timezone)
 
-        self.average_sampling_rate = duration / (end_timestamp - start_timestamp).total_seconds() * self.sampling_rate
 
     def get_datetime_from_filepath(self, filepath: str) -> datetime:
         """
@@ -557,10 +595,14 @@ class CREAM_Day():‚
 
     def _adjust_amplitude_offset(self, file: h5py.File) -> Tuple[int, int]:
         """
+        Resembles the pre-processing functionality in the BLOND repository (one_second_data_summary_functions.py) by
+        Thomas Kriechbaumer.
+
+
         Computes the mean per period to get an estimate for the offset in each period.
         This is done for the voltage signal.
-        The period length is computed using the average_sampling_rate, hence this can deviate from the
-        theoretical period length. Therefore, we zero pad the voltage signal to get full periods again before computing
+        The period length is computed using the nominal sampling rate. Tthis can deviate from the
+        actual period length. Therefore, we zero pad the voltage signal to get full periods again before computing
         the mean.
         Then we use the estimate per period, to linearly interpolate the mean values per period, to get an offset value
         per sample point in the signal. We then use the offset of the voltage to compute the offset of the current by multiplying
@@ -578,14 +620,14 @@ class CREAM_Day():‚
 
         length = len(file['voltage'])
 
-        # Compute the average period_length, using the average_sampling_rate
-        period_length = round(self.average_sampling_rate / 50)
+        # Compute the average period_length, using the nominal sampling rate
+        period_length = round(self.sampling_rate / 50)
 
         # Get the missing samples, opposed to the optimal number of periods in the signal
         remainder = divmod(length, period_length)[1]
 
-        if remainder != 0:  # no zero padding necessary
-            voltage = np.pad(file['voltage'][:], (0, period_length - remainder), 'constant',
+
+        voltage = np.pad(file['voltage'][:], (0, period_length - remainder), 'constant',
                              constant_values=0)  # zero padding
 
         voltage = voltage.reshape(-1, period_length)  # the single periods, period wise reshape
