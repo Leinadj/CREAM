@@ -1,5 +1,7 @@
 # CREAM Code Repository
-### by Daniel Jorde
+## Dataset Download: https://mediatum.ub.tum.de/1534850
+### Fully labeled dataset for evlauating condition monitoring and other manufacturing related tasks, based on electrical signal analysis.
+
 Utility classes and functions for the CREAM Dataset and the corresponding data descriptor.
 
 Folder structure:
