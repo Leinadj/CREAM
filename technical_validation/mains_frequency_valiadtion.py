@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+Run as a python script!
 This script is used to check the mains frequency in the signal.
 It should be 50 Hz. Inspired by the analysis by Thomas Kriechbaumer on the BLOND dataset, we
 perform a fourier transform on the voltage signal and copmare the base frequency to the nominal one of 50 Hz.

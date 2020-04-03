@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+Run as a python script!
 This script is used to check if the signals (voltage and current (coffee maker channel, noise channel)
 are recorded as expected.
 The checks are inspired by the ones carried out by Thomas Kriechbaumer for the BLOND dataset. See
@@ -105,7 +106,6 @@ def validate_voltage(file: str, voltage: np.ndarray):
         if np.sum(np.abs(np.diff(period))) == 0:
             raise ValueError("Voltage contains flat regions in file %s" % (filename))
 
-
 def validate_current(file: str, current_signals: np.ndarray):
     """
     Validate the current signals, both the coffee maker and the noise channel signals.
@@ -159,7 +159,6 @@ def validate_current(file: str, current_signals: np.ndarray):
         if np.sum(np.abs(np.diff(period))) == 0:
             raise ValueError("Current contains flat regions in file %s" % (filename))
 
-
 def run_checks(dataset_location: str):
     """
     Run this function to execute the voltage and current signal checks.
@@ -191,8 +190,6 @@ def run_checks(dataset_location: str):
             validate_voltage(file=file, voltage=voltage)
 
             validate_current(file=file, current_signals=current)
-
-
 
 if __name__ == "__main__":
 

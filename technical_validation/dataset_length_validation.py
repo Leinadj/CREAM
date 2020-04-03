@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+Run as a python script!
 This script is used to check if the dataset is complete.
 
 Check if all files have the expected length

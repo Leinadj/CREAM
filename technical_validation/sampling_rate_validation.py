@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+Run as a python script!
 This script is used to validate the actual sampling rate in the CREAM files and to check
 if the actual sampling rate differs from the nominal one.
 Please specify the data location and run the script to reproduce the results.

@@ -534,8 +534,6 @@ class CREAM_Day():
 
         return self.average_sampling_rate
 
-
-
     def get_datetime_from_filepath(self, filepath: str) -> datetime:
         """
         Extracts the datetime from a filename of a CREAM file.
