@@ -1,6 +1,6 @@
 # CREAM Code Repository
 ## Dataset Download: https://mediatum.ub.tum.de/1534850
-### Fully labeled dataset for evlaluating condition monitoring and other manufacturing related tasks, based on electrical signal analysis.
+### Fully labeled dataset for evaluating condition monitoring and other manufacturing related tasks, based on electrical signal analysis.
 
 Utility classes and functions for the CREAM Dataset and the corresponding data descriptor.
 
