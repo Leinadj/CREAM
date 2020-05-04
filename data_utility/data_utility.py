@@ -385,7 +385,7 @@ class CREAM_Day():
                 if attr in ["calibration_factor", "removed_offset"]: #not in the attribute root of the hdf5 file
                     attributes_dict[attr] = f["voltage"].attrs[attr]
                 else: #attributes in the root of the hdf5 file
-                    attributes_dict[attr] = f.attrs['frequency']
+                    attributes_dict[attr] = f.attrs[attr]
 
         return attributes_dict
 
