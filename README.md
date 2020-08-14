@@ -9,7 +9,7 @@ This repository contains Utility classes and functions for the CREAM Dataset and
 Folder structure:
 
 1. *data_utility*: Utility class for loading and processing the CREAM dataset
-2. *data_colelction*: Data collection scripts of the MEDAL data acquisition dataset. Original scripts can be found in the BLOND dataset by Thomas Kriechbaumer.
+2. *data_collection*: Data collection scripts of the MEDAL data acquisition dataset. Original scripts can be found in the BLOND dataset by Thomas Kriechbaumer.
 3. *labeling_tools*: Jupyter notebook based tools that were used to label CREAM
 4. *manuscript*: Scripts for creating the plots in the data descriptor
 5. *technical_validation*: Scripts used to perform the technical validation of the data and the labels.
